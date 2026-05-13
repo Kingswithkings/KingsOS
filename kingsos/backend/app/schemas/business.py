@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+
 class BusinessCreate(BaseModel):
     business_name: str
     industry: str
@@ -15,8 +16,10 @@ class BusinessCreate(BaseModel):
     biggest_challenge: Optional[str] = None
     products_or_services: Optional[str] = None
 
+
 class BusinessResponse(BusinessCreate):
     id: int
+    owner_id: int
     created_at: datetime
 
     class Config:
