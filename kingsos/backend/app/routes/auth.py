@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from jose import JWTError, jwt
 
 from app.database import get_db
 from app.models.user import User
@@ -7,7 +9,9 @@ from app.schemas.user import UserCreate, UserLogin, UserResponse
 from app.core.security import (
     hash_password,
     verify_password,
-    create_access_token
+    create_access_token,
+    SECRET_KEY,
+    ALGORITHM
 )
 
 router = APIRouter(
@@ -15,18 +19,12 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
+security = HTTPBearer(auto_error=False)
+
 
 @router.post("/register", response_model=UserResponse)
-def register_user(
-    user_data: UserCreate,
-    db: Session = Depends(get_db)
-):
-    # Check if user already exists
-    existing_user = (
-        db.query(User)
-        .filter(User.email == user_data.email)
-        .first()
-    )
+def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
 
     if existing_user:
         raise HTTPException(
@@ -34,7 +32,6 @@ def register_user(
             detail="Email already registered"
         )
 
-    # Create new user
     new_user = User(
         full_name=user_data.full_name,
         business_name=user_data.business_name,
@@ -53,28 +50,27 @@ def register_user(
 @router.post("/login")
 def login_user(
     user_data: UserLogin,
+    response: Response,
     db: Session = Depends(get_db)
 ):
-    # Find user
-    user = (
-        db.query(User)
-        .filter(User.email == user_data.email)
-        .first()
-    )
+    user = db.query(User).filter(User.email == user_data.email).first()
 
-    # Verify credentials
-    if not user or not verify_password(
-        user_data.password,
-        user.hashed_password
-    ):
+    if not user or not verify_password(user_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
 
-    # Create JWT token
     access_token = create_access_token(
-        data={"sub": user.email}
+        data={"sub": str(user.id), "email": user.email}
+    )
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24
     )
 
     return {
@@ -88,3 +84,64 @@ def login_user(
             "email": user.email
         }
     }
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    access_token: str | None = Cookie(default=None),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials if credentials else access_token
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+
+        subject = payload.get("sub")
+        email = payload.get("email")
+
+        if subject is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if subject.isdigit():
+        user = db.query(User).filter(User.id == int(subject)).first()
+    else:
+        user = db.query(User).filter(User.email == subject).first()
+
+    if user is None and email:
+        user = db.query(User).filter(User.email == email).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user
+
+
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user

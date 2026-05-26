@@ -4,7 +4,7 @@ from fastapi.openapi.utils import get_openapi
 
 from app.database import Base, engine
 from app.models.user import User
-from app.routes import business, auth
+from app.routes import business, auth, dashboard, customers, tasks, ai
 
 Base.metadata.create_all(bind=engine)
 
@@ -16,7 +16,10 @@ app = FastAPI(
 
 app.include_router(auth.router)
 app.include_router(business.router)
-
+app.include_router(dashboard.router)
+app.include_router(customers.router)
+app.include_router(tasks.router)
+app.include_router(ai.router)
 
 @app.get("/")
 def root():
