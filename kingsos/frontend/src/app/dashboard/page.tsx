@@ -1,255 +1,157 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, setAuthToken } from "@/lib/api";
+import AppLayout from "@/components/AppLayout";
+import { api, isUnauthorizedError, loadStoredAuthToken } from "@/lib/api";
 
-type Customer = {
+type DashboardCustomer = {
   id: number;
   name: string;
-  email?: string | null;
-  company?: string | null;
-  status?: string | null;
+  company: string;
+  status: string;
 };
 
-type Task = {
+type DashboardTask = {
   id: number;
   title: string;
-  priority?: string | null;
-  status?: string | null;
-  due_date?: string | null;
-  assigned_to?: string | null;
+  priority: string;
+  status: string;
 };
 
 type DashboardSummary = {
+  total_businesses: number;
   total_customers: number;
   total_tasks: number;
-  total_businesses: number;
-  recent_activity: {
-    recent_customers: Customer[];
-    recent_tasks: Task[];
+  pending_tasks: number;
+  completed_tasks: number;
+  recent_activity?: {
+    recent_customers?: DashboardCustomer[];
+    recent_tasks?: DashboardTask[];
   };
-  ai_insights: string[];
+  ai_insights?: string[];
 };
 
-const emptySummary: DashboardSummary = {
-  total_customers: 0,
-  total_tasks: 0,
-  total_businesses: 0,
-  recent_activity: {
-    recent_customers: [],
-    recent_tasks: [],
-  },
-  ai_insights: [],
+type CurrentUser = {
+  full_name: string;
+  business_name: string;
 };
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [summary, setSummary] = useState<DashboardSummary>(emptySummary);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [me, setMe] = useState<CurrentUser | null>(null);
 
   useEffect(() => {
-    const token =
-      localStorage.getItem("token") ??
-      localStorage.getItem("kingsos_access_token");
-
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
-    setAuthToken(token);
-
     async function loadDashboard() {
+      const token = loadStoredAuthToken();
+
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+
       try {
-        const response = await api.get<DashboardSummary>("/dashboard/summary");
-        setSummary(response.data);
-      } catch {
-        setError("Unable to load dashboard data.");
-      } finally {
-        setIsLoading(false);
+        const userRes = await api.get<CurrentUser>("/auth/me");
+        const summaryRes = await api.get<DashboardSummary>(
+          "/dashboard/summary"
+        );
+
+        setMe(userRes.data);
+        setSummary(summaryRes.data);
+      } catch (error) {
+        if (!isUnauthorizedError(error)) {
+          console.error(error);
+        }
+
+        router.replace("/login");
       }
     }
 
     loadDashboard();
   }, [router]);
 
-  const stats = useMemo(
-    () => [
-      {
-        label: "Customers",
-        value: summary.total_customers,
-        detail: "Tracked contacts",
-      },
-      {
-        label: "Tasks",
-        value: summary.total_tasks,
-        detail: "Active workflow items",
-      },
-      {
-        label: "Businesses",
-        value: summary.total_businesses,
-        detail: "Operating profiles",
-      },
-    ],
-    [summary]
-  );
-
-  function handleLogout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("kingsos_access_token");
-    localStorage.removeItem("kingsos_user");
-    setAuthToken("");
-    router.push("/login");
+  if (!summary) {
+    return (
+      <AppLayout>
+        <p>Loading KingsOS dashboard...</p>
+      </AppLayout>
+    );
   }
 
+  const recentCustomers = summary.recent_activity?.recent_customers || [];
+  const recentTasks = summary.recent_activity?.recent_tasks || [];
+
   return (
-    <main className="min-h-screen bg-neutral-100 text-neutral-950">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-6 sm:px-8 lg:px-10">
-        <header className="flex flex-col gap-4 border-b border-neutral-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-medium text-teal-700">KingsOS</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight">
-              Dashboard
-            </h1>
-          </div>
+    <AppLayout>
+      <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
 
-          <button
-            className="h-10 rounded-md border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 transition hover:bg-neutral-50"
-            type="button"
-            onClick={handleLogout}
-          >
-            Log out
-          </button>
-        </header>
+      <p className="text-gray-600 mb-8">
+        Welcome, {me?.full_name} {me?.business_name}
+      </p>
 
-        {error ? (
-          <p className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-8">
+        <Card title="Businesses" value={summary.total_businesses} />
+        <Card title="Customers" value={summary.total_customers} />
+        <Card title="Tasks" value={summary.total_tasks} />
+        <Card title="Pending" value={summary.pending_tasks} />
+        <Card title="Completed" value={summary.completed_tasks} />
+      </div>
 
-        <section className="mt-6 grid gap-4 md:grid-cols-3">
-          {stats.map((stat) => (
-            <div
-              className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm"
-              key={stat.label}
-            >
-              <p className="text-sm font-medium text-neutral-500">
-                {stat.label}
-              </p>
-              <p className="mt-3 text-4xl font-semibold tracking-tight">
-                {isLoading ? "..." : stat.value}
-              </p>
-              <p className="mt-2 text-sm text-neutral-500">{stat.detail}</p>
-            </div>
-          ))}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <section className="bg-white p-6 rounded-xl shadow">
+          <h2 className="text-xl font-semibold mb-4">Recent Customers</h2>
+
+          {recentCustomers.length === 0 ? (
+            <p className="text-gray-500">No recent customers yet.</p>
+          ) : (
+            recentCustomers.map((customer) => (
+              <div key={customer.id} className="border-b py-3">
+                <p className="font-semibold">{customer.name}</p>
+                <p className="text-sm text-gray-500">
+                  {customer.company} — {customer.status}
+                </p>
+              </div>
+            ))
+          )}
         </section>
 
-        <section className="mt-6 grid flex-1 gap-6 lg:grid-cols-[1fr_0.85fr]">
-          <div className="space-y-6">
-            <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="text-lg font-semibold">Recent customers</h2>
-                <a
-                  className="text-sm font-medium text-teal-700"
-                  href="/customers"
-                >
-                  View all
-                </a>
-              </div>
+        <section className="bg-white p-6 rounded-xl shadow">
+          <h2 className="text-xl font-semibold mb-4">Recent Tasks</h2>
 
-              <div className="mt-4 divide-y divide-neutral-100">
-                {isLoading ? (
-                  <p className="py-6 text-sm text-neutral-500">
-                    Loading customers...
-                  </p>
-                ) : summary.recent_activity.recent_customers.length ? (
-                  summary.recent_activity.recent_customers.map((customer) => (
-                    <div className="py-4" key={customer.id}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-medium">{customer.name}</p>
-                          <p className="mt-1 text-sm text-neutral-500">
-                            {customer.company || customer.email || "No details"}
-                          </p>
-                        </div>
-                        <span className="rounded-md bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700">
-                          {customer.status || "lead"}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="py-6 text-sm text-neutral-500">
-                    No customers yet.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="text-lg font-semibold">Recent tasks</h2>
-                <a className="text-sm font-medium text-teal-700" href="/tasks">
-                  View all
-                </a>
-              </div>
-
-              <div className="mt-4 divide-y divide-neutral-100">
-                {isLoading ? (
-                  <p className="py-6 text-sm text-neutral-500">
-                    Loading tasks...
-                  </p>
-                ) : summary.recent_activity.recent_tasks.length ? (
-                  summary.recent_activity.recent_tasks.map((task) => (
-                    <div className="py-4" key={task.id}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-medium">{task.title}</p>
-                          <p className="mt-1 text-sm text-neutral-500">
-                            {task.assigned_to || task.due_date || "Unassigned"}
-                          </p>
-                        </div>
-                        <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-700">
-                          {task.status || task.priority || "pending"}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="py-6 text-sm text-neutral-500">
-                    No tasks yet.
-                  </p>
-                )}
-              </div>
-            </section>
-          </div>
-
-          <aside className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold">AI insights</h2>
-            <div className="mt-4 space-y-3">
-              {isLoading ? (
-                <p className="text-sm text-neutral-500">Loading insights...</p>
-              ) : summary.ai_insights.length ? (
-                summary.ai_insights.map((insight) => (
-                  <p
-                    className="rounded-md bg-neutral-100 px-4 py-3 text-sm leading-6 text-neutral-700"
-                    key={insight}
-                  >
-                    {insight}
-                  </p>
-                ))
-              ) : (
-                <p className="text-sm text-neutral-500">
-                  No insights available.
+          {recentTasks.length === 0 ? (
+            <p className="text-gray-500">No recent tasks yet.</p>
+          ) : (
+            recentTasks.map((task) => (
+              <div key={task.id} className="border-b py-3">
+                <p className="font-semibold">{task.title}</p>
+                <p className="text-sm text-gray-500">
+                  {task.priority} priority — {task.status}
                 </p>
-              )}
-            </div>
-          </aside>
+              </div>
+            ))
+          )}
         </section>
       </div>
-    </main>
+
+      <section className="bg-white p-6 rounded-xl shadow">
+        <h2 className="text-xl font-semibold mb-4">AI Insights</h2>
+
+        {summary.ai_insights?.map((item: string, index: number) => (
+          <p key={index} className="text-gray-700 mb-2">
+            • {item}
+          </p>
+        ))}
+      </section>
+    </AppLayout>
+  );
+}
+
+function Card({ title, value }: { title: string; value: number }) {
+  return (
+    <div className="bg-white p-6 rounded-xl shadow">
+      <p className="text-gray-500">{title}</p>
+      <h2 className="text-4xl font-bold">{value}</h2>
+    </div>
   );
 }

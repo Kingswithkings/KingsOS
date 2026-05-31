@@ -1,15 +1,108 @@
-from fastapi import APIRouter, Depends
+import os
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+from openai import OpenAI
+from pinecone import Pinecone, ServerlessSpec
 
 from app.database import get_db
 from app.routes.business import Business
 from app.routes.customers import Customer
 from app.routes.tasks import Task
+from app.routes.projects import Project
+
+load_dotenv()
 
 router = APIRouter(
     prefix="/ai",
     tags=["AI Assistant"]
 )
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "kingsos")
+
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY is missing")
+
+if not PINECONE_API_KEY:
+    raise RuntimeError("PINECONE_API_KEY is missing")
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
+
+existing_indexes = [index["name"] for index in pinecone_client.list_indexes()]
+
+if PINECONE_INDEX_NAME not in existing_indexes:
+    pinecone_client.create_index(
+        name=PINECONE_INDEX_NAME,
+        dimension=1536,
+        metric="cosine",
+        spec=ServerlessSpec(
+            cloud="aws",
+            region="us-east-1"
+        )
+    )
+
+index = pinecone_client.Index(PINECONE_INDEX_NAME)
+
+
+def create_embedding(text: str):
+    response = openai_client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    )
+
+    return response.data[0].embedding
+
+
+@router.post("/sync-business-memory")
+def sync_business_memory(db: Session = Depends(get_db)):
+    businesses = db.query(Business).all()
+    customers = db.query(Customer).all()
+    tasks = db.query(Task).all()
+    projects = db.query(Project).all()
+
+    records = []
+
+    for business in businesses:
+        text = f"Business: {business.business_name}. Type: {business.business_type}. Owner: {business.owner_name}. Email: {business.email}."
+        records.append(("business", business.id, text))
+
+    for customer in customers:
+        text = f"Customer: {customer.name}. Company: {customer.company}. Status: {customer.status}. Notes: {customer.notes}."
+        records.append(("customer", customer.id, text))
+
+    for task in tasks:
+        text = f"Task: {task.title}. Description: {task.description}. Priority: {task.priority}. Status: {task.status}. Assigned to: {task.assigned_to}. Due date: {task.due_date}."
+        records.append(("task", task.id, text))
+
+    for project in projects:
+        text = f"Project: {project.name}. Description: {project.description}. Status: {project.status}. Owner: {project.owner}."
+        records.append(("project", project.id, text))
+
+    vectors = []
+
+    for record_type, record_id, text in records:
+        embedding = create_embedding(text)
+
+        vectors.append({
+            "id": f"{record_type}-{record_id}",
+            "values": embedding,
+            "metadata": {
+                "type": record_type,
+                "record_id": record_id,
+                "text": text
+            }
+        })
+
+    if vectors:
+        index.upsert(vectors=vectors)
+
+    return {
+        "message": "Business memory synced to Pinecone",
+        "records_synced": len(vectors)
+    }
 
 
 @router.post("/ask")
@@ -17,64 +110,82 @@ def ask_ai(
     question: str,
     db: Session = Depends(get_db)
 ):
-    total_businesses = db.query(Business).count()
-    total_customers = db.query(Customer).count()
-    total_tasks = db.query(Task).count()
+    try:
+        question_embedding = create_embedding(question)
 
-    pending_tasks = (
-        db.query(Task)
-        .filter(Task.status == "pending")
-        .count()
-    )
-
-    completed_tasks = (
-        db.query(Task)
-        .filter(Task.status == "completed")
-        .count()
-    )
-
-    question_lower = question.lower()
-
-    if "summary" in question_lower or "dashboard" in question_lower:
-        answer = (
-            f"KingsOS currently has {total_businesses} business record(s), "
-            f"{total_customers} customer(s), and {total_tasks} task(s). "
-            f"There are {pending_tasks} pending task(s) and "
-            f"{completed_tasks} completed task(s)."
+        search_results = index.query(
+            vector=question_embedding,
+            top_k=5,
+            include_metadata=True
         )
 
-    elif "task" in question_lower:
-        answer = (
-            f"You currently have {total_tasks} task(s). "
-            f"{pending_tasks} are pending and {completed_tasks} are completed."
+        retrieved_context = []
+
+        for match in search_results.get("matches", []):
+            metadata = match.get("metadata", {})
+            text = metadata.get("text")
+
+            if text:
+                retrieved_context.append(text)
+
+        total_businesses = db.query(Business).count()
+        total_customers = db.query(Customer).count()
+        total_tasks = db.query(Task).count()
+        total_projects = db.query(Project).count()
+
+        pending_tasks = db.query(Task).filter(Task.status == "pending").count()
+        completed_tasks = db.query(Task).filter(Task.status == "completed").count()
+
+        business_context = f"""
+KingsOS Business Data:
+- Total businesses: {total_businesses}
+- Total customers: {total_customers}
+- Total projects: {total_projects}
+- Total tasks: {total_tasks}
+- Pending tasks: {pending_tasks}
+- Completed tasks: {completed_tasks}
+
+Relevant memory from Pinecone:
+{chr(10).join(retrieved_context)}
+"""
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are KingsOS AI Assistant, an intelligent business operating assistant "
+                        "for startups and SMEs. Give clear, practical, business-focused advice. "
+                        "Use the provided business context. Do not invent data."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"{business_context}\n\nUser question: {question}"
+                }
+            ],
+            temperature=0.4
         )
 
-    elif "customer" in question_lower:
-        answer = (
-            f"You currently have {total_customers} customer(s) in your CRM."
-        )
+        answer = response.choices[0].message.content
 
-    elif "focus" in question_lower:
-        answer = (
-            f"Your immediate focus should be on completing your "
-            f"{pending_tasks} pending task(s), following up with customers, "
-            f"and keeping your business records updated."
-        )
-
-    else:
-        answer = (
-            "I am the KingsOS AI Assistant. I can currently answer questions "
-            "about your dashboard, customers, tasks, and business summary."
-        )
-
-    return {
-        "question": question,
-        "answer": answer,
-        "data_used": {
-            "total_businesses": total_businesses,
-            "total_customers": total_customers,
-            "total_tasks": total_tasks,
-            "pending_tasks": pending_tasks,
-            "completed_tasks": completed_tasks
+        return {
+            "question": question,
+            "answer": answer,
+            "context_used": retrieved_context,
+            "data_used": {
+                "total_businesses": total_businesses,
+                "total_customers": total_customers,
+                "total_projects": total_projects,
+                "total_tasks": total_tasks,
+                "pending_tasks": pending_tasks,
+                "completed_tasks": completed_tasks
+            }
         }
-    }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )

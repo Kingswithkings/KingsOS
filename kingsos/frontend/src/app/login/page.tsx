@@ -1,6 +1,9 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { API_BASE_URL } from "@/lib/api";
 
 type LoginResponse = {
   access_token: string;
@@ -11,10 +14,8 @@ type LoginResponse = {
   };
 };
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
-
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -44,7 +45,7 @@ export default function LoginPage() {
       localStorage.setItem("kingsos_access_token", data.access_token);
       localStorage.setItem("kingsos_user", JSON.stringify(data.user));
 
-      window.location.href = "/dashboard";
+      router.replace("/dashboard");
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -140,11 +141,11 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <p className="mt-6 text-sm text-neutral-600">
-              Need an account?{" "}
-              <a className="font-medium text-teal-700" href="/register">
-                Create one
-              </a>
+            <p className="text-center mt-4 text-sm text-neutral-600">
+              No account?{" "}
+              <Link href="/register" className="underline">
+                Create Workspace
+              </Link>
             </p>
           </div>
         </div>

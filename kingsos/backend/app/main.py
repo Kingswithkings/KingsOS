@@ -5,7 +5,7 @@ from fastapi.openapi.utils import get_openapi
 
 from app.database import Base, engine
 from app.models.user import User
-from app.routes import business, auth, dashboard, customers, tasks, ai
+from app.routes import business, auth, dashboard, customers, tasks, ai, projects, team
 
 Base.metadata.create_all(bind=engine)
 
@@ -21,6 +21,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,6 +33,8 @@ app.include_router(dashboard.router)
 app.include_router(customers.router)
 app.include_router(tasks.router)
 app.include_router(ai.router)
+app.include_router(projects.router)
+app.include_router(team.router)
 
 @app.get("/")
 def root():
