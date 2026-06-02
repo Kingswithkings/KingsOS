@@ -6,10 +6,10 @@ from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
 
 from app.database import get_db
-from app.routes.business import Business
-from app.routes.customers import Customer
-from app.routes.tasks import Task
-from app.routes.projects import Project
+from app.models.business import Business
+from kingsos.backend.app.schemas.customer import Customer
+from kingsos.backend.app.schemas.task import Task
+from kingsos.backend.app.schemas.project import Project
 
 load_dotenv()
 
@@ -54,6 +54,47 @@ def create_embedding(text: str):
     )
 
     return response.data[0].embedding
+
+
+@router.get("/business-analysis")
+def business_analysis(db: Session = Depends(get_db)):
+    total_customers = db.query(Customer).count()
+    total_projects = db.query(Project).count()
+    total_tasks = db.query(Task).count()
+
+    pending_tasks = (
+        db.query(Task)
+        .filter(Task.status == "pending")
+        .count()
+    )
+
+    completed_tasks = (
+        db.query(Task)
+        .filter(Task.status == "completed")
+        .count()
+    )
+
+    score = 50
+
+    score += min(total_customers * 2, 20)
+    score += min(completed_tasks * 2, 20)
+    score -= min(pending_tasks, 20)
+
+    score = max(0, min(score, 100))
+
+    return {
+        "health_score": score,
+        "total_customers": total_customers,
+        "total_projects": total_projects,
+        "total_tasks": total_tasks,
+        "pending_tasks": pending_tasks,
+        "completed_tasks": completed_tasks,
+        "recommendations": [
+            "Complete overdue tasks",
+            "Follow up active customers",
+            "Review project progress"
+        ]
+    }
 
 
 @router.post("/sync-business-memory")

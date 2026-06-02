@@ -1,11 +1,28 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
 from fastapi.openapi.utils import get_openapi
 
 from app.database import Base, engine
+
 from app.models.user import User
-from app.routes import business, auth, dashboard, customers, tasks, ai, projects, team
+from app.models.business import Business
+from kingsos.backend.app.schemas.customer import Customer
+from kingsos.backend.app.schemas.task import Task
+from kingsos.backend.app.schemas.project import Project
+from kingsos.backend.app.schemas.team import TeamMember
+from app.models.activity import Activity
+
+from app.routes import (
+    auth,
+    business,
+    dashboard,
+    customers,
+    tasks,
+    ai,
+    projects,
+    team,
+    activity,
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -35,6 +52,8 @@ app.include_router(tasks.router)
 app.include_router(ai.router)
 app.include_router(projects.router)
 app.include_router(team.router)
+app.include_router(activity.router)
+
 
 @app.get("/")
 def root():

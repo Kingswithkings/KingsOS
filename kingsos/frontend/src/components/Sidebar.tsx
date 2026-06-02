@@ -30,8 +30,16 @@ export default function Sidebar() {
           👤 Team
         </Link>
 
+        <Link href="/activity" className="block hover:text-gray-300">
+          🕒 Activity
+        </Link>
+
         <Link href="/ai-assistant" className="block hover:text-gray-300">
           🤖 AI Assistant
+        </Link>
+
+        <Link href="/ai-insights" className="block hover:text-gray-300">
+          🧠 AI Insights
         </Link>
 
         <Link href="/settings" className="block hover:text-gray-300">

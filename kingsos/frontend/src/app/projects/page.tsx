@@ -61,13 +61,11 @@ export default function ProjectsPage() {
     setMessage("");
 
     try {
-      await api.post("/projects/create", null, {
-        params: {
-          name,
-          description,
-          owner,
-          status,
-        },
+      await api.post("/projects/create", {
+        name,
+        description,
+        owner,
+        status,
       });
 
       setName("");

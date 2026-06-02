@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
+from kingsos.backend.app.schemas.customer import Customer
 
 
 router = APIRouter(
@@ -10,20 +11,23 @@ router = APIRouter(
     tags=["Customers"]
 )
 
-
-class Customer(Base):
-    __tablename__ = "customers"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=True)
-    phone = Column(String, nullable=True)
-    company = Column(String, nullable=True)
-    status = Column(String, default="lead")
-    notes = Column(String, nullable=True)
-
-
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_customer_columns():
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(text("PRAGMA table_info(customers)"))
+        }
+
+        if "business_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE customers ADD COLUMN business_id INTEGER")
+            )
+
+
+ensure_customer_columns()
 
 
 @router.post("/create")
@@ -34,6 +38,7 @@ def create_customer(
     company: str = None,
     status: str = "lead",
     notes: str = None,
+    business_id: int = None,
     db: Session = Depends(get_db)
 ):
     new_customer = Customer(
@@ -42,7 +47,8 @@ def create_customer(
         phone=phone,
         company=company,
         status=status,
-        notes=notes
+        notes=notes,
+        business_id=business_id
     )
 
     db.add(new_customer)

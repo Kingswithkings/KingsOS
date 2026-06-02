@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, getApiErrorMessage, isNetworkError } from "@/lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -35,8 +35,16 @@ export default function RegisterPage() {
         router.replace("/login");
       }, 1500);
     } catch (error) {
-      console.error(error);
-      setMessage("Registration failed.");
+      if (isNetworkError(error)) {
+        setMessage(
+          "Cannot connect to the KingsOS API. Make sure the backend is running on port 8000."
+        );
+      } else {
+        setMessage(
+          getApiErrorMessage(error) ??
+            "Registration failed. Check the details and try again."
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }

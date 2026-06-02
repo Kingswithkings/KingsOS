@@ -1,26 +1,34 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
+from kingsos.backend.app.schemas.team import TeamMember
 
 router = APIRouter(
     prefix="/team",
     tags=["Team"]
 )
 
-
-class TeamMember(Base):
-    __tablename__ = "team_members"
-
-    id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String, nullable=False)
-    email = Column(String, unique=True)
-    role = Column(String)
-    status = Column(String, default="active")
-
-
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_team_columns():
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                text("PRAGMA table_info(team_members)")
+            )
+        }
+
+        if "business_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE team_members ADD COLUMN business_id INTEGER")
+            )
+
+
+ensure_team_columns()
 
 
 @router.post("/create")
@@ -28,6 +36,7 @@ def create_member(
     full_name: str,
     email: str,
     role: str,
+    business_id: int = None,
     db: Session = Depends(get_db)
 ):
     existing = (
@@ -45,7 +54,8 @@ def create_member(
     member = TeamMember(
         full_name=full_name,
         email=email,
-        role=role
+        role=role,
+        business_id=business_id
     )
 
     db.add(member)

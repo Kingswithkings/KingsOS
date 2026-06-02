@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.routes.business import Business
-from app.routes.customers import Customer
-from app.routes.tasks import Task
+from app.models.business import Business
+from kingsos.backend.app.schemas.customer import Customer
+from kingsos.backend.app.schemas.task import Task
 
 router = APIRouter(
     prefix="/dashboard",

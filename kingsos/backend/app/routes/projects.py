@@ -1,27 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from app.routes.tasks import Task
+from kingsos.backend.app.schemas.project import Project
+from kingsos.backend.app.schemas.task import Task
 
 router = APIRouter(
     prefix="/projects",
     tags=["Projects"]
 )
 
-
-class Project(Base):
-    __tablename__ = "projects"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    status = Column(String, default="active")
-    owner = Column(String, nullable=True)
-
-
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_project_columns():
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(text("PRAGMA table_info(projects)"))
+        }
+
+        if "business_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE projects ADD COLUMN business_id INTEGER")
+            )
+
+
+ensure_project_columns()
 
 
 @router.post("/create")
@@ -30,13 +36,15 @@ def create_project(
     description: str = None,
     status: str = "active",
     owner: str = None,
+    business_id: int = None,
     db: Session = Depends(get_db)
 ):
     project = Project(
         name=name,
         description=description,
         status=status,
-        owner=owner
+        owner=owner,
+        business_id=business_id
     )
 
     db.add(project)

@@ -1,30 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Column, Integer, String, text
+from datetime import datetime
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
+from app.models.activity import Activity
+from kingsos.backend.app.schemas.task import Task
 
 
 router = APIRouter(
     prefix="/tasks",
     tags=["Tasks"]
 )
-
-
-class Task(Base):
-    __tablename__ = "tasks"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    priority = Column(String, default="medium")
-    status = Column(String, default="pending")
-    due_date = Column(String, nullable=True)
-    assigned_to = Column(String, nullable=True)
-    assigned_user_id = Column(Integer, nullable=True)
-    customer_id = Column(Integer, nullable=True)
-    project_id = Column(Integer, nullable=True)
-
 
 Base.metadata.create_all(bind=engine)
 
@@ -46,6 +33,11 @@ def ensure_task_columns():
                 text("ALTER TABLE tasks ADD COLUMN assigned_user_id INTEGER")
             )
 
+        if "business_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE tasks ADD COLUMN business_id INTEGER")
+            )
+
 
 ensure_task_columns()
 
@@ -61,6 +53,7 @@ def create_task(
     assigned_user_id: int = None,
     customer_id: int = None,
     project_id: int = None,
+    business_id: int = None,
     db: Session = Depends(get_db)
 ):
     new_task = Task(
@@ -72,12 +65,24 @@ def create_task(
         assigned_to=assigned_to,
         assigned_user_id=assigned_user_id,
         customer_id=customer_id,
-        project_id=project_id
+        project_id=project_id,
+        business_id=business_id
     )
 
     db.add(new_task)
     db.commit()
     db.refresh(new_task)
+
+    activity = Activity(
+        action="Created Task",
+        entity_type="Task",
+        entity_id=new_task.id,
+        user="Kings",
+        timestamp=str(datetime.now())
+    )
+
+    db.add(activity)
+    db.commit()
 
     return {
         "message": "Task created successfully",
@@ -113,6 +118,7 @@ def update_task(
     assigned_user_id: int = None,
     customer_id: int = None,
     project_id: int = None,
+    business_id: int = None,
     db: Session = Depends(get_db)
 ):
     task = db.query(Task).filter(Task.id == task_id).first()
@@ -138,6 +144,8 @@ def update_task(
         task.customer_id = customer_id
     if project_id is not None:
         task.project_id = project_id
+    if business_id is not None:
+        task.business_id = business_id
 
     db.commit()
     db.refresh(task)

@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 
-from app.database import get_db
+from app.database import engine, get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse
 from app.core.security import (
@@ -20,6 +21,22 @@ router = APIRouter(
 )
 
 security = HTTPBearer(auto_error=False)
+
+
+def ensure_user_columns():
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(text("PRAGMA table_info(users)"))
+        }
+
+        if "business_id" not in columns:
+            connection.execute(
+                text("ALTER TABLE users ADD COLUMN business_id INTEGER")
+            )
+
+
+ensure_user_columns()
 
 
 @router.post("/register", response_model=UserResponse)

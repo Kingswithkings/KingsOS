@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { API_BASE_URL } from "@/lib/api";
+import { api, isNetworkError } from "@/lib/api";
 
 type LoginResponse = {
   access_token: string;
@@ -27,31 +27,42 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({ email, password }),
+      const response = await api.post<LoginResponse>("/auth/login", {
+        email,
+        password,
       });
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? "Unable to sign in.");
-      }
-
-      const data = (await response.json()) as LoginResponse;
+      const data = response.data;
       localStorage.setItem("kingsos_access_token", data.access_token);
       localStorage.setItem("kingsos_user", JSON.stringify(data.user));
 
       router.replace("/dashboard");
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to sign in."
-      );
+      if (isNetworkError(caughtError)) {
+        setError(
+          "Cannot connect to the KingsOS API. Make sure the backend is running on port 8000."
+        );
+      } else {
+        const detail =
+          typeof caughtError === "object" &&
+          caughtError !== null &&
+          "response" in caughtError &&
+          typeof caughtError.response === "object" &&
+          caughtError.response !== null &&
+          "data" in caughtError.response &&
+          typeof caughtError.response.data === "object" &&
+          caughtError.response.data !== null &&
+          "detail" in caughtError.response.data
+            ? String(caughtError.response.data.detail)
+            : null;
+
+        setError(
+          detail ??
+            (caughtError instanceof Error
+              ? caughtError.message
+              : "Unable to sign in.")
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
