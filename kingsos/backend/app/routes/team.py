@@ -3,7 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from kingsos.backend.app.schemas.team import TeamMember
+from app.models.team import TeamMember
 
 router = APIRouter(
     prefix="/team",

@@ -3,7 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from kingsos.backend.app.schemas.customer import Customer
+from app.models.customer import Customer
 
 
 router = APIRouter(

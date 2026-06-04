@@ -2,14 +2,20 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from openai import OpenAI
-from pinecone import Pinecone, ServerlessSpec
+
+try:
+    from openai import OpenAI
+    from pinecone import Pinecone, ServerlessSpec
+except ModuleNotFoundError:
+    OpenAI = None
+    Pinecone = None
+    ServerlessSpec = None
 
 from app.database import get_db
 from app.models.business import Business
-from kingsos.backend.app.schemas.customer import Customer
-from kingsos.backend.app.schemas.task import Task
-from kingsos.backend.app.schemas.project import Project
+from app.models.customer import Customer
+from app.models.task import Task
+from app.models.project import Project
 
 load_dotenv()
 
@@ -22,33 +28,52 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "kingsos")
 
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY is missing")
+openai_client = None
+pinecone_index = None
 
-if not PINECONE_API_KEY:
-    raise RuntimeError("PINECONE_API_KEY is missing")
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
-pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
+def get_ai_clients():
+    global openai_client, pinecone_index
 
-existing_indexes = [index["name"] for index in pinecone_client.list_indexes()]
-
-if PINECONE_INDEX_NAME not in existing_indexes:
-    pinecone_client.create_index(
-        name=PINECONE_INDEX_NAME,
-        dimension=1536,
-        metric="cosine",
-        spec=ServerlessSpec(
-            cloud="aws",
-            region="us-east-1"
+    if OpenAI is None or Pinecone is None or ServerlessSpec is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Install openai and pinecone to use AI endpoints"
         )
-    )
 
-index = pinecone_client.Index(PINECONE_INDEX_NAME)
+    if not OPENAI_API_KEY or not PINECONE_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Set OPENAI_API_KEY and PINECONE_API_KEY to use AI endpoints"
+        )
+
+    if openai_client is None:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+    if pinecone_index is None:
+        pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
+        existing_indexes = [
+            index["name"] for index in pinecone_client.list_indexes()
+        ]
+
+        if PINECONE_INDEX_NAME not in existing_indexes:
+            pinecone_client.create_index(
+                name=PINECONE_INDEX_NAME,
+                dimension=1536,
+                metric="cosine",
+                spec=ServerlessSpec(
+                    cloud="aws",
+                    region="us-east-1"
+                )
+            )
+
+        pinecone_index = pinecone_client.Index(PINECONE_INDEX_NAME)
+
+    return openai_client, pinecone_index
 
 
-def create_embedding(text: str):
-    response = openai_client.embeddings.create(
+def create_embedding(client, text: str):
+    response = client.embeddings.create(
         model="text-embedding-3-small",
         input=text
     )
@@ -99,6 +124,8 @@ def business_analysis(db: Session = Depends(get_db)):
 
 @router.post("/sync-business-memory")
 def sync_business_memory(db: Session = Depends(get_db)):
+    client, index = get_ai_clients()
+
     businesses = db.query(Business).all()
     customers = db.query(Customer).all()
     tasks = db.query(Task).all()
@@ -125,7 +152,7 @@ def sync_business_memory(db: Session = Depends(get_db)):
     vectors = []
 
     for record_type, record_id, text in records:
-        embedding = create_embedding(text)
+        embedding = create_embedding(client, text)
 
         vectors.append({
             "id": f"{record_type}-{record_id}",
@@ -152,7 +179,8 @@ def ask_ai(
     db: Session = Depends(get_db)
 ):
     try:
-        question_embedding = create_embedding(question)
+        client, index = get_ai_clients()
+        question_embedding = create_embedding(client, question)
 
         search_results = index.query(
             vector=question_embedding,
@@ -190,7 +218,7 @@ Relevant memory from Pinecone:
 {chr(10).join(retrieved_context)}
 """
 
-        response = openai_client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {

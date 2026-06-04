@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
 from app.models.activity import Activity
-from kingsos.backend.app.schemas.task import Task
+from app.models.task import Task
 
 
 router = APIRouter(

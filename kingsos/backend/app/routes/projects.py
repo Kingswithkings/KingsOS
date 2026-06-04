@@ -3,8 +3,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from kingsos.backend.app.schemas.project import Project
-from kingsos.backend.app.schemas.task import Task
+from app.models.project import Project
+from app.models.task import Task
 
 router = APIRouter(
     prefix="/projects",

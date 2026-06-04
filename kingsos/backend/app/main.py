@@ -6,11 +6,13 @@ from app.database import Base, engine
 
 from app.models.user import User
 from app.models.business import Business
-from kingsos.backend.app.schemas.customer import Customer
-from kingsos.backend.app.schemas.task import Task
-from kingsos.backend.app.schemas.project import Project
-from kingsos.backend.app.schemas.team import TeamMember
+from app.models.customer import Customer
+from app.models.task import Task
+from app.models.project import Project
+from app.models.team import TeamMember
 from app.models.activity import Activity
+
+Base.metadata.create_all(bind=engine)
 
 from app.routes import (
     auth,
@@ -23,8 +25,6 @@ from app.routes import (
     team,
     activity,
 )
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="KingsOS API",

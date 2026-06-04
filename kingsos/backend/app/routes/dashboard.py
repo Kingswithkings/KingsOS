@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.business import Business
-from kingsos.backend.app.schemas.customer import Customer
-from kingsos.backend.app.schemas.task import Task
+from app.models.customer import Customer
+from app.models.task import Task
 
 router = APIRouter(
     prefix="/dashboard",
